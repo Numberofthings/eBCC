@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: MIT 
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
+contract EvmBCCToken is ERC20 {
+    using SafeMath for uint256;
+
+    IERC20 public eBtcToken; // The E.BTC token contract
+    uint256 public constant maxTransactionsPerBlock = 5; // Maximum transactions per block
+
+    mapping(address => uint256) public mintCallsPerWallet; // Number of mint calls per wallet
+
+    uint256 public mintCount;
+    uint256 public maxSupply = 2_100_000 * 10**18;  // 2.1 million with 18 decimals
+    uint256 public initialReward = 5 * 10**18;  // 5 tokens with 18 decimals
+    uint256 public currentHalving = 0;
+    uint256 public lastMintBlock; // Store the last block number when mint occurred
+
+    event Debug(string message, uint256 value);
+
+    constructor(address _eBtcTokenAddress) ERC20("evmBCC", "e.BCC") {
+        eBtcToken = IERC20(_eBtcTokenAddress); // Initialize the E.BTC token contract
+        lastMintBlock = block.number; // Initialize the last mint block to the deployment block
+    }
+
+    function mint() external {
+        require(totalSupply() < maxSupply, "Max supply reached");
+        require(tx.origin == tx.origin, "Only EOA allowed to mint");
+
+        // Check if the current transaction is within the first 5 transactions of the block
+        require(mintCallsPerWallet[msg.sender] < maxTransactionsPerBlock, "Exceeded max transactions per block");
+
+        uint256 reward = initialReward.div(2**currentHalving);
+        require(totalSupply() + reward <= maxSupply, "Exceeds max supply");
+
+        // Ensure the caller owns at least 10 E.BTC token to be eligible for minting
+        require(eBtcToken.balanceOf(msg.sender) >= 1000 * 10**18, "You must own at least 10 E.BTC token to mint");
+
+        emit Debug("Reward before mint:", reward);
+
+        _mint(msg.sender, reward);
+        mintCount++;
+        mintCallsPerWallet[msg.sender]++; // Increment mint calls for the caller
+        lastMintBlock = block.number; // Update the last mint block to the current block
+
+        // Check if it's time for halving
+        if (mintCount % 21000 == 0) {
+            currentHalving++;
+        }
+    }
+}
